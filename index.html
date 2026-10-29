@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portal de Apps</title>
+<style>
+  :root { --bg:#f6f5f8; --surface:#fff; --text:#1d1b22; --muted:#6b6775; --line:#e3e0ea; --accent:#7b2cbf; --danger:#d62828; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141217; --surface:#1e1b24; --text:#f1eff5; --muted:#a29eae; --line:#332f3c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; background:var(--bg); color:var(--text); }
+  .wrap { max-width: 720px; margin: 0 auto; padding: 20px 16px 48px; }
+  header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom: 20px; }
+  h1 { margin:0; font-size:1.5rem; }
+  p.sub { margin:4px 0 0; color:var(--muted); font-size:.95rem; }
+  button, a.btn { font:inherit; cursor:pointer; border-radius:8px; border:1px solid var(--line); background:var(--surface);
+                  color:var(--text); padding:9px 14px; text-decoration:none; display:inline-block; }
+  button:hover, a.btn:hover { border-color: var(--muted); }
+  button:focus-visible, a.btn:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .primary { background:var(--accent); border-color:var(--accent); color:#fff; }
+  .primary:hover { border-color: var(--accent); filter: brightness(1.1); }
+  .danger { color:var(--danger); }
+  .list { display:grid; gap:10px; }
+  .app { display:flex; align-items:center; justify-content:space-between; gap:12px; background:var(--surface);
+         border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+  .app .name { font-weight:600; overflow-wrap:anywhere; }
+  .empty, #msg { color:var(--muted); padding:18px 0; }
+  #msg.err { color:var(--danger); }
+  dialog { border:1px solid var(--line); border-radius:14px; padding:0; width:min(480px,94vw); background:var(--surface); color:var(--text); }
+  dialog::backdrop { background:rgba(0,0,0,.45); }
+  .m { padding:18px; display:grid; gap:14px; }
+  .m h2 { margin:0; font-size:1.1rem; }
+  label { display:grid; gap:4px; font-size:.85rem; color:var(--muted); }
+  input { font:inherit; padding:10px; border-radius:8px; border:1px solid var(--line); background:var(--bg); color:var(--text); width:100%; }
+  .actions { display:flex; justify-content:flex-end; gap:8px; }
+  .err-txt { color:var(--danger); font-size:.85rem; min-height:1.1em; }
+  .adm-list { display:grid; gap:8px; max-height:220px; overflow:auto; }
+  .adm-item { display:flex; justify-content:space-between; align-items:center; gap:8px; border:1px solid var(--line);
+              border-radius:8px; padding:8px 10px; font-size:.9rem; }
+  .adm-item span { overflow-wrap:anywhere; }
+  .adm-item button { padding:5px 9px; font-size:.8rem; }
+  .form-title { font-weight:600; }
+  [hidden] { display:none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Nossos apps</h1>
+      <p class="sub">Escolha o app e toque em Acessar.</p>
+    </div>
+    <button id="admBtn">Administrador</button>
+  </header>
+
+  <div id="msg">Carregando…</div>
+  <div class="list" id="list"></div>
+</div>
+
+<dialog id="dlg">
+  <div class="m">
+    <!-- etapa 1: senha -->
+    <div id="login" class="m" style="padding:0">
+      <h2>Área do administrador</h2>
+      <label>Senha <input id="pass" type="password" autocomplete="current-password"></label>
+      <div class="err-txt" id="loginErr" role="alert"></div>
+      <div class="actions">
+        <button id="cancel">Cancelar</button>
+        <button id="enter" class="primary">Entrar</button>
+      </div>
+    </div>
+
+    <!-- etapa 2: cadastro -->
+    <div id="panel" class="m" style="padding:0" hidden>
+      <h2>Cadastrar novo app</h2>
+      <label>Nome do app <input id="nome" maxlength="60" autocomplete="off" placeholder="Ex.: Calendário BLITZ"></label>
+      <label>Link de acesso <input id="link" type="url" autocomplete="off" placeholder="https://usuario.github.io/meu-app/"></label>
+      <div class="err-txt" id="panelErr" role="alert"></div>
+      <div class="actions"><button id="add" class="primary">Cadastrar app</button></div>
+      <div class="form-title">Apps cadastrados</div>
+      <div class="adm-list" id="admList"></div>
+      <div class="actions"><button id="logout">Sair</button></div>
+    </div>
+  </div>
+</dialog>
+
+<script>
+// ====== CONFIGURAÇÃO ======
+const API_URL = 'https://script.google.com/macros/s/AKfycbx6BBdW90GP2rOEjjGG2NRBhJEpQ-mx1tQdfaWJAv-2LnhfOE7X_hUpf7KpNAYJvfrx/exec';
+// A senha NÃO fica aqui: ela é conferida no Apps Script.
+// ==========================
+
+const $ = id => document.getElementById(id);
+let apps = [];
+let senha = null; // guardada só na memória da aba
+
+async function load() {
+  try {
+    const r = await fetch(API_URL);
+    const j = await r.json();
+    if (!j.ok) throw new Error(j.error);
+    apps = j.items.sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+    $('msg').hidden = true;
+  } catch (e) {
+    $('msg').textContent = 'Não foi possível carregar os apps: ' + e.message;
+    $('msg').className = 'err';
+  }
+  render();
+}
+
+async function send(payload) {
+  // text/plain evita o preflight de CORS no Apps Script
+  const r = await fetch(API_URL, { method: 'POST', body: JSON.stringify({ password: senha, ...payload }) });
+  const j = await r.json();
+  if (!j.ok) throw new Error(j.error);
+}
+
+function safeUrl(u) { return /^https?:\/\//i.test(u) ? u : '#'; }
+
+function render() {
+  const list = $('list'); list.innerHTML = '';
+  if (!apps.length && $('msg').hidden) {
+    const d = document.createElement('div'); d.className = 'empty';
+    d.textContent = 'Nenhum app cadastrado ainda.'; list.appendChild(d);
+  }
+  apps.forEach(a => {
+    const row = document.createElement('div'); row.className = 'app';
+    const n = document.createElement('span'); n.className = 'name'; n.textContent = a.nome;
+    const b = document.createElement('a'); b.className = 'btn primary'; b.textContent = 'Acessar';
+    b.href = safeUrl(a.link); b.target = '_blank'; b.rel = 'noopener noreferrer';
+    row.append(n, b); list.appendChild(row);
+  });
+  renderAdmin();
+}
+
+function renderAdmin() {
+  const box = $('admList'); box.innerHTML = '';
+  apps.forEach(a => {
+    const row = document.createElement('div'); row.className = 'adm-item';
+    const n = document.createElement('span'); n.textContent = a.nome;
+    const d = document.createElement('button'); d.className = 'danger'; d.textContent = 'Excluir';
+    d.onclick = async () => {
+      if (!confirm(`Excluir "${a.nome}" do portal?`)) return;
+      $('panelErr').textContent = '';
+      try { await send({ action: 'delete', id: a.id }); await load(); }
+      catch (e) { $('panelErr').textContent = e.message; }
+    };
+    row.append(n, d); box.appendChild(row);
+  });
+}
+
+function showLogin() {
+  senha = null;
+  $('login').hidden = false; $('panel').hidden = true;
+  $('pass').value = ''; $('loginErr').textContent = '';
+}
+
+$('admBtn').onclick = () => { showLogin(); $('dlg').showModal(); $('pass').focus(); };
+$('cancel').onclick = () => $('dlg').close();
+$('logout').onclick = () => { showLogin(); $('dlg').close(); };
+$('dlg').addEventListener('close', () => { senha = null; });
+
+async function entrar() {
+  senha = $('pass').value;
+  $('loginErr').textContent = 'Verificando…';
+  try {
+    await send({ action: 'login' });
+    $('loginErr').textContent = '';
+    $('login').hidden = true; $('panel').hidden = false;
+    $('nome').focus();
+  } catch (e) { senha = null; $('loginErr').textContent = e.message; }
+}
+$('enter').onclick = entrar;
+$('pass').addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
+
+$('add').onclick = async () => {
+  $('panelErr').textContent = 'Salvando…';
+  try {
+    await send({ action: 'add', nome: $('nome').value, link: $('link').value });
+    $('nome').value = ''; $('link').value = ''; $('panelErr').textContent = '';
+    await load();
+  } catch (e) { $('panelErr').textContent = e.message; }
+};
+
+load();
+</script>
+</body>
+</html>
