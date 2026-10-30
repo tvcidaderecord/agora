@@ -3,6 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#b01d23">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Apps Agora">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="color-scheme" content="light">
 <title>Portal de Apps | Grupo Agora</title>
 <style>
@@ -136,6 +144,12 @@
   @media (prefers-reduced-motion:reduce) {
     *, *::before, *::after { animation:none !important; transition:none !important; }
   }
+
+  /* instalação */
+  .install { cursor:pointer; border:0; color:#fff; font-weight:600; padding:10px 18px; border-radius:999px;
+             background:linear-gradient(135deg,var(--red),var(--red-dark)); box-shadow:0 10px 20px -10px rgba(0,0,0,.45); }
+  .install:hover { transform:translateY(-1px); }
+  .steps { margin:0; padding-left:20px; display:grid; gap:8px; }
 </style>
 </head>
 <body>
@@ -161,7 +175,10 @@
     <div class="sk"></div><div class="sk"></div><div class="sk"></div><div class="sk"></div>
   </div>
 
-  <footer>Grupo Agora de Comunicação</footer>
+  <footer>
+    <div><button class="install" id="installBtn" type="button" hidden>Instalar app</button></div>
+    <div style="margin-top:14px">Grupo Agora de Comunicação</div>
+  </footer>
 </div>
 
 <dialog id="dlg">
@@ -198,6 +215,19 @@
       <div class="adm-list" id="admList"></div>
       <div class="actions"><button class="btn" id="logout">Sair</button></div>
     </div>
+  </div>
+</dialog>
+
+<dialog id="iosDlg">
+  <div class="m">
+    <h2>Instalar no iPhone</h2>
+    <ol class="steps">
+      <li>Abra este site no <strong>Safari</strong>.</li>
+      <li>Toque no botão <strong>Compartilhar</strong> (o quadrado com a seta para cima).</li>
+      <li>Escolha <strong>Adicionar à Tela de Início</strong>.</li>
+      <li>Toque em <strong>Adicionar</strong>.</li>
+    </ol>
+    <div class="actions"><button class="btn primary" id="iosClose" type="button">Entendi</button></div>
   </div>
 </dialog>
 
@@ -420,6 +450,26 @@ $('add').onclick = () => run(editingId ? 'Salvando alterações…' : 'Cadastran
 });
 
 load();
+
+// ===== Instalação como app (PWA) =====
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
+}
+(() => {
+  const btn = document.getElementById('installBtn'); if (!btn) return;
+  const standalone = matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+  if (standalone) return; // já está rodando como app instalado
+  const isIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  let promptEvt = null;
+  document.getElementById('iosClose').onclick = () => document.getElementById('iosDlg').close();
+  if (isIOS) { btn.textContent = 'Como instalar no iPhone'; btn.hidden = false; }
+  window.addEventListener('beforeinstallprompt', e => { e.preventDefault(); promptEvt = e; btn.textContent = 'Instalar app'; btn.hidden = false; });
+  window.addEventListener('appinstalled', () => { btn.hidden = true; promptEvt = null; });
+  btn.onclick = async () => {
+    if (promptEvt) { promptEvt.prompt(); await promptEvt.userChoice; promptEvt = null; btn.hidden = true; }
+    else document.getElementById('iosDlg').showModal();
+  };
+})();
 </script>
 </body>
 </html>
