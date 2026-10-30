@@ -115,6 +115,22 @@
   .adm-item span { overflow-wrap:anywhere; }
   .adm-item .btn { padding:5px 10px; font-size:.8rem; }
   .form-title { font-weight:600; }
+  dialog { max-height:92vh; overflow:auto; }
+  .av.has-img, .app:nth-child(even) .av.has-img { background:#fff; border:1px solid var(--line); padding:5px; }
+  .av img, .mini-av img, .icon-prev img { width:100%; height:100%; object-fit:contain; display:block; border-radius:inherit; }
+  .lbl { font-size:.85rem; color:var(--muted); margin-bottom:6px; }
+  .icon-row { display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+  .icon-prev { width:56px; height:56px; border-radius:16px; display:grid; place-items:center; color:#fff; font-weight:700; font-size:1.4rem;
+               background:linear-gradient(135deg,var(--red),var(--red-dark)); flex:none; overflow:hidden; }
+  .icon-prev.has-img, .mini-av.has-img { background:#fff; border:1px solid var(--line); padding:4px; }
+  .pick { display:inline-block; cursor:pointer; color:var(--text); font-size:1rem; }
+  .hint-s { color:var(--muted); font-size:.78rem; margin-top:6px; }
+  .adm-item .who { display:flex; align-items:center; gap:10px; min-width:0; }
+  .mini-av { width:34px; height:34px; border-radius:10px; display:grid; place-items:center; color:#fff; font-weight:700; flex:none;
+             background:linear-gradient(135deg,var(--red),var(--red-dark)); overflow:hidden; }
+  .adm-btns { display:flex; gap:6px; flex:none; }
+  .adm-item.editing { border-color:var(--red); background:#fff6f6; }
+  .btn:disabled { opacity:.6; cursor:wait; transform:none; }
   [hidden] { display:none !important; }
 
   @media (prefers-reduced-motion:reduce) {
@@ -161,11 +177,23 @@
     </div>
 
     <div id="panel" class="m" style="padding:0" hidden>
-      <h2>Cadastrar novo app</h2>
+      <h2 id="formTitle">Cadastrar novo app</h2>
       <label>Nome do app <input id="nome" maxlength="60" autocomplete="off" placeholder="Ex.: Calendário BLITZ"></label>
       <label>Link de acesso <input id="link" type="url" autocomplete="off" placeholder="https://usuario.github.io/meu-app/"></label>
+      <div>
+        <div class="lbl">Ícone do app (opcional)</div>
+        <div class="icon-row">
+          <div class="icon-prev" id="iconPrev"></div>
+          <label class="btn pick">Escolher imagem<input id="iconFile" type="file" accept="image/*" hidden></label>
+          <button class="btn" id="iconClear" type="button">Remover ícone</button>
+        </div>
+        <div class="hint-s">Use uma imagem quadrada (PNG, JPG ou WebP). Ela é reduzida automaticamente.</div>
+      </div>
       <div class="err-txt" id="panelErr" role="alert"></div>
-      <div class="actions"><button class="btn primary" id="add">Cadastrar app</button></div>
+      <div class="actions">
+        <button class="btn" id="cancelEdit" type="button" hidden>Cancelar edição</button>
+        <button class="btn primary" id="add" type="button">Cadastrar app</button>
+      </div>
       <div class="form-title">Apps cadastrados</div>
       <div class="adm-list" id="admList"></div>
       <div class="actions"><button class="btn" id="logout">Sair</button></div>
@@ -223,7 +251,11 @@ function render() {
   }
   shown.forEach((a, idx) => {
     const row = document.createElement('div'); row.className = 'app'; row.style.setProperty('--i', idx);
-    const av = document.createElement('div'); av.className = 'av'; av.textContent = a.nome.charAt(0).toUpperCase();
+    const av = document.createElement('div'); av.className = 'av';
+    if (/^data:image\//.test(a.icone || '')) {
+      av.classList.add('has-img');
+      const im = document.createElement('img'); im.src = a.icone; im.alt = ''; av.appendChild(im);
+    } else av.textContent = a.nome.charAt(0).toUpperCase();
     const info = document.createElement('div'); info.className = 'info';
     const n = document.createElement('div'); n.className = 'name'; n.textContent = a.nome;
     const h = document.createElement('div'); h.className = 'hint'; h.textContent = 'Abre em nova aba';
@@ -237,26 +269,112 @@ function render() {
   renderAdmin();
 }
 
+let editingId = null; // id do app em edição (null = cadastro novo)
+let iconState = '';   // '' = sem ícone | texto = novo ícone | undefined = manter o atual (edição)
+let busy = false;
+
+function currentIcon() {
+  if (iconState !== undefined) return iconState;
+  const a = apps.find(x => x.id === editingId);
+  return a ? (a.icone || '') : '';
+}
+
+function renderPreview() {
+  const box = $('iconPrev'); box.innerHTML = '';
+  const ic = currentIcon();
+  box.classList.toggle('has-img', !!ic);
+  if (ic) { const im = document.createElement('img'); im.src = ic; im.alt = ''; box.appendChild(im); }
+  else box.textContent = ($('nome').value.trim().charAt(0) || '?').toUpperCase();
+}
+
 function renderAdmin() {
   const box = $('admList'); box.innerHTML = '';
   apps.forEach(a => {
-    const row = document.createElement('div'); row.className = 'adm-item';
+    const row = document.createElement('div'); row.className = 'adm-item' + (a.id === editingId ? ' editing' : '');
+    const who = document.createElement('div'); who.className = 'who';
+    const mv = document.createElement('div'); mv.className = 'mini-av' + (a.icone ? ' has-img' : '');
+    if (a.icone) { const im = document.createElement('img'); im.src = a.icone; im.alt = ''; mv.appendChild(im); }
+    else mv.textContent = a.nome.charAt(0).toUpperCase();
     const n = document.createElement('span'); n.textContent = a.nome;
+    who.append(mv, n);
+
+    const btns = document.createElement('div'); btns.className = 'adm-btns';
+    const e = document.createElement('button'); e.className = 'btn'; e.textContent = 'Editar';
+    e.onclick = () => startEdit(a);
     const d = document.createElement('button'); d.className = 'btn danger'; d.textContent = 'Excluir';
-    d.onclick = async () => {
+    d.onclick = () => {
       if (!confirm(`Excluir "${a.nome}" do portal?`)) return;
-      $('panelErr').textContent = '';
-      try { await send({ action: 'delete', id: a.id }); await load(); }
-      catch (e) { $('panelErr').textContent = e.message; }
+      run('Excluindo…', async () => {
+        await send({ action: 'delete', id: a.id });
+        if (editingId === a.id) resetForm();
+        await load();
+        $('panelErr').textContent = '';
+      });
     };
-    row.append(n, d); box.appendChild(row);
+    btns.append(e, d);
+    row.append(who, btns); box.appendChild(row);
   });
+}
+
+function resetForm() {
+  editingId = null; iconState = '';
+  $('nome').value = ''; $('link').value = ''; $('iconFile').value = '';
+  $('formTitle').textContent = 'Cadastrar novo app';
+  $('add').textContent = 'Cadastrar app';
+  $('cancelEdit').hidden = true;
+  $('panelErr').textContent = '';
+  renderPreview(); renderAdmin();
+}
+
+function startEdit(a) {
+  editingId = a.id; iconState = undefined;
+  $('nome').value = a.nome; $('link').value = a.link; $('iconFile').value = '';
+  $('formTitle').textContent = 'Editar app';
+  $('add').textContent = 'Salvar alterações';
+  $('cancelEdit').hidden = false;
+  $('panelErr').textContent = '';
+  renderPreview(); renderAdmin();
+  $('dlg').scrollTop = 0; $('nome').focus();
+}
+
+// reduz a imagem e converte para texto (data URL) pequeno o bastante para a célula do Sheets
+function fileToIcon(file) {
+  return new Promise((resolve, reject) => {
+    if (!file.type.startsWith('image/')) return reject(new Error('Escolha um arquivo de imagem.'));
+    const url = URL.createObjectURL(file), img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      const iw = img.naturalWidth || 128, ih = img.naturalHeight || 128;
+      for (const S of [128, 96, 64]) {
+        const c = document.createElement('canvas'); c.width = c.height = S;
+        const k = Math.min(S / iw, S / ih), w = iw * k, h = ih * k;
+        c.getContext('2d').drawImage(img, (S - w) / 2, (S - h) / 2, w, h);
+        for (const t of ['image/webp', 'image/png']) {
+          const d = c.toDataURL(t, 0.85);
+          if (d.startsWith('data:' + t) && d.length <= 45000) return resolve(d);
+        }
+      }
+      reject(new Error('Imagem muito complexa. Tente uma imagem mais simples.'));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Não foi possível ler essa imagem.')); };
+    img.src = url;
+  });
+}
+
+async function run(msg, fn) {
+  if (busy) return;
+  busy = true; $('add').disabled = true;
+  $('panelErr').textContent = msg;
+  try { await fn(); }
+  catch (e) { $('panelErr').textContent = e.message; }
+  finally { busy = false; $('add').disabled = false; }
 }
 
 function showLogin() {
   senha = null;
   $('login').hidden = false; $('panel').hidden = true;
   $('pass').value = ''; $('loginErr').textContent = '';
+  resetForm();
 }
 
 $('q').addEventListener('input', render);
@@ -278,14 +396,28 @@ async function entrar() {
 $('enter').onclick = entrar;
 $('pass').addEventListener('keydown', e => { if (e.key === 'Enter') entrar(); });
 
-$('add').onclick = async () => {
-  $('panelErr').textContent = 'Salvando…';
-  try {
-    await send({ action: 'add', nome: $('nome').value, link: $('link').value });
-    $('nome').value = ''; $('link').value = ''; $('panelErr').textContent = '';
-    await load();
-  } catch (e) { $('panelErr').textContent = e.message; }
-};
+$('nome').addEventListener('input', renderPreview);
+$('iconClear').onclick = () => { iconState = ''; $('iconFile').value = ''; renderPreview(); };
+$('cancelEdit').onclick = resetForm;
+$('iconFile').addEventListener('change', async e => {
+  const f = e.target.files[0]; if (!f) return;
+  $('panelErr').textContent = 'Processando imagem…';
+  try { iconState = await fileToIcon(f); $('panelErr').textContent = ''; renderPreview(); }
+  catch (err) { $('panelErr').textContent = err.message; }
+});
+
+$('add').onclick = () => run(editingId ? 'Salvando alterações…' : 'Cadastrando…', async () => {
+  const nome = $('nome').value, link = $('link').value;
+  if (editingId) {
+    const payload = { action: 'update', id: editingId, nome, link };
+    if (iconState !== undefined) payload.icone = iconState;
+    await send(payload);
+  } else {
+    await send({ action: 'add', nome, link, icone: iconState || '' });
+  }
+  await load();
+  resetForm();
+});
 
 load();
 </script>
